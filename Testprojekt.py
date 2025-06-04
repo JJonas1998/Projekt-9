@@ -232,3 +232,48 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
+
+
+
+
+    def set_stoerung(self, wert):
+        """Setzt die Störgröße (z.B. plötzliche Wärmezufuhr, wirkt einmalig im nächsten Schritt)."""
+        self.stoerung = wert
+    
+    def update(self, leistung, dt=1.0):
+        """
+        Führt einen Simulationsschritt durch.
+        leistung: Heiz- oder Kühlleistung (vom Regler, wird automatisch begrenzt)
+        dt: Zeitschritt (Standard 1 Sekunde)
+        """
+        # Begrenzung der Heiz-/Kühlleistung
+        leistung = min(max(leistung, -self.max_cool), self.max_heat)
+
+        # Temperaturdifferenz zur Umgebung (Abkühlung/Erwärmung)
+        verlust = -self.waermeverlust * (self.temperatur - self.umgebung) * dt
+
+        # Temperaturänderung durch Leistung + Störgröße
+        self.temperatur += verlust + leistung * dt + self.stoerung
+
+        # Störgröße wirkt nur einmal
+        self.stoerung = 0.0
+        return self.temperatur
+    
+    def reset(self, start_temp=None):
+        """Setzt die Temperatur auf Startwert zurück."""
+        if start_temp is not None:
+            self.temperatur = start_temp
+
+## PID-Regler-Klasse
+# Implementieren Sie einen PID-Regler, um eine Zieltemperatur zu halten.
+
+
+

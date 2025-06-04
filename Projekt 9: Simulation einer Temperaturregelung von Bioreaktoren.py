@@ -8,7 +8,15 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import time
 from CoolProp.CoolProp import PropsSI
-from fluids import Reynolds, Prandtl
+from fluids import Prandtl
+
+# Streamlit Konfiguration  
+
+st.set_page_config(
+    page_title = "Simulation einer Temperaturregelung von Bioreaktoren",
+    page_icon = "🧪",
+    layout = "wide"
+)
 
 ## Bioreaktor-Klasse
 # Schreiben Sie eine Python-Funktion zur Simulation von Temperaturänderungen in einem Bioreaktor
@@ -18,70 +26,52 @@ class Bioreaktor:
     Simuliert einen Bioreaktor mit Temperaturregelung. 
     Die Temperatur wird durch Heizen/Kühlen, Umgebungseinfluss und optionale Störungen verändert.
     """
-    def __init__(self, volumen = 100, spez_c = 4180, dichte = 1000, start_temp = 20, rpm = 100, d_ruehrer = 0,1):
-        self.volumen = volumen                                                                                  # Volumen des Reaktorinhalts in Liter
-        self.spez_c = PropsSI("Cpmass", "T", (start_temp + 273.15), "P", 101325, "Water")                       # spezifische Wärmekapazität des Mediums(Wasser) in J/(kg*K) - Wasser
-        self.dichte = dichte                                                                                    # Dichte des Mediums in kg/m³
-        self.flaeche = 2 * np.pi * (volumen / 1000) ** (2 / 3)                                                  # Fläche des Bioreaktor in m² (Zylinder-Äquivalent => geschätzt)
+    def __init__(self, volumen = 100, start_temp = 20, rpm = 100):
+        self.volumen = volumen / 1000                                                                           # Umrechnung Volumen des Reaktorinhalts von l in m³
+        self.spez_c = PropsSI("Cpmass", "T", (start_temp + 273.15), "P", 101325, "Water")                       # Spezifische Wärmekapazität des Mediums(Wasser) in J/(kg*K) 
+        self.dichte = PropsSI("Dmass" ,"T", (start_temp + 273.15), "P", 101325, "Water")                        # Dichte des Mediums (Wasser) in kg/m³
+        self.radius = (self.volumen / (2 * np.pi)) ** (1/3)                                                     # Berechnung Radius des Bioreaktors (Zylinder) in m - (Annahme: Höhe h = 2 * r)
+        self.hoehe  = 2 * self.radius                                                                           # Höhe des Bioreaktors in m 
+        self.flaeche = 2 * np.pi * (self.radius ** 2) + 2 * np.pi * self.radius * self.hoehe                    # Innenfläche des Bioreaktor in m² 
         self.umg_temp = start_temp                                                                              # Umgebungstemperatur in °C
-        self.start_temp =  start_temp                                                                           # Reaktor-Innentemperatur in °C (Starttemperatur)
-        self.rpm = rpm                                                                                          # Drehzahl des Rührers
-        self.d_ruehrer = d_ruehrer                                                                              # Durchmesser des Rührers in Meter
-    """
-    Berechnung Wärmeübergangskoeffizient über Dittus–Boelter aus rpm und Impellerdurchmesser.
-    """
-    def berechnung_h_(self):
-        temperatur = self.start_temp + 273.15
-        k   = PropsSI("CONDUCTIVITY", "T", temperatur, "P", 101325, "Water")
-        mu  = PropsSI("VISCOSITY" ,"T", temperatur, "P", 101325, "Water")
-        rho = PropsSI("Dmass" ,"T", temperatur, "P", 101325, "Water")
-        v = (self.rpm / 60) * np.pi * self.d_ruehrer
-        Re = Reynolds(rho, v, self.d_ruehrer, mu)
-        Pr = Prandtl(self.spez_z, mu, k)
-        Nu = (0.037 * Re ** 0.8 * Pr) / (1 + 2.443 * Re ** (- 0.1) * (Pr ** (2 / 3) - 1))
-        h = Nu * k / self.d_ruehrer
+        self.start_temp = start_temp                                                                            # Reaktor-Innentemperatur in °C (Starttemperatur)
+        self.rpm = rpm                                                                                          # Drehzahl des Rührers in 1/min
+        self.d_ruehrer = (2 * self.radius) / 3                                                                  # Durchmesser des Rührers in m (Annahme: Rührerdurchmesser 1/3 des Reaktordurchmessers)
+        self.waerme_h = self.berechnung_h()                                                                     # Berechnung des Wärmeübergangskoeffizienten in W/(m²*K)     
+        
+    def berechnung_h(self):
+        """
+        Berechnung des Wärmeübergangskoeffizienten h anhand von Impeller-Drehzahl (rpm) und Rührerdurchmesser.
+        """
+        ist_temp = self.start_temp + 273.15                                                                     # Umrechnung der Starttemperatur in Kelvin                           
+        k   = PropsSI("CONDUCTIVITY", "T", ist_temp, "P", 101325, "Water")                                      # Wärmeleitfähigkeit des Mediums (Wasser) in W/(m*K)    
+        mu  = PropsSI("VISCOSITY" ,"T", ist_temp, "P", 101325, "Water")                                         # Dynamische Viskosität des Mediums (Wasser) in Pa*s     
+        Re = ((self.rpm / 60) * (self.d_ruehrer ** 2) * self.dichte) / mu                                       # Reynolds-Zahl des Mediums (Wasser) im Bioreaktor    
+        Pr = Prandtl(self.spez_c, mu, k)                                                                        # Prandtl-Zahl des Mediums (Wasser) im Bioreaktor    
+
+        if 4.5e3 < Re < 1e4 and 0.6 < Pr < 160:
+            Nu = 0.354 * (Re ** 0.714) * (Pr ** 0.260)                                                          # Nusselt-Zahl für turbulente Strömung (Impeller)                                       
+        elif Re >= 1e4 and Pr >= 0.6:
+            Nu = 0.023 * (Re ** 0.8) * (Pr ** 0.4)                                                              # Nusselt-Zahl für turbulente Strömung (Dittus-Boelter)                                                  
+        else:
+            Nu = 3.66                                                                                           # Nusselt-Zahl für laminare Strömung       
+                                                                                                 
+        h = Nu * k / self.d_ruehrer                                                                             # Wärmeübergangskoeffizient in W/(m²*K)   
         return h       
 
+    def update_temperature(self, heizleistung, stoerung = 0, dt = 1):
 
+        masse = self.volumen * self.dichte                                                                      # Masse des Reaktorinhalts in kg
+        waermekapazitaet = masse * self.spez_c                                                                  # Wärmekapazität des Reaktorinhalts in J/K    
 
+        waermeverlust = self.waerme_h * self.flaeche * (self.start_temp - self.umg_temp)                        # Wärmeverlust an die Umgebung in W 
+        waermeaenderung = heizleistung - waermeverlust + stoerung                                               # Änderung der Wärme im Reaktor in W    
+        dT = (waermeaenderung * dt) / waermekapazitaet                                                          # Temperaturänderung in K (dT = dQ / C)
+        self.current_temp += dT                                                                                 # Aktualisierung der aktuellen Temperatur in °C
+        return self.current_temp                                                
+        
 
-
-
-
-
-
-
-
-    def set_stoerung(self, wert):
-        """Setzt die Störgröße (z.B. plötzliche Wärmezufuhr, wirkt einmalig im nächsten Schritt)."""
-        self.stoerung = wert
     
-    def update(self, leistung, dt=1.0):
-        """
-        Führt einen Simulationsschritt durch.
-        leistung: Heiz- oder Kühlleistung (vom Regler, wird automatisch begrenzt)
-        dt: Zeitschritt (Standard 1 Sekunde)
-        """
-        # Begrenzung der Heiz-/Kühlleistung
-        leistung = min(max(leistung, -self.max_cool), self.max_heat)
 
-        # Temperaturdifferenz zur Umgebung (Abkühlung/Erwärmung)
-        verlust = -self.waermeverlust * (self.temperatur - self.umgebung) * dt
-
-        # Temperaturänderung durch Leistung + Störgröße
-        self.temperatur += verlust + leistung * dt + self.stoerung
-
-        # Störgröße wirkt nur einmal
-        self.stoerung = 0.0
-        return self.temperatur
-    
-    def reset(self, start_temp=None):
-        """Setzt die Temperatur auf Startwert zurück."""
-        if start_temp is not None:
-            self.temperatur = start_temp
-
-## PID-Regler-Klasse
-# Implementieren Sie einen PID-Regler, um eine Zieltemperatur zu halten.
-
-
+         
 
