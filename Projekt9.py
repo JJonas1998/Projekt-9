@@ -18,15 +18,18 @@ class Bioreaktor:
     Simuliert einen Bioreaktor mit Temperaturregelung. 
     Die Temperatur wird durch Heizen/Kühlen, Umgebungseinfluss und optionale Störungen verändert.
     """
-    def __init__(self, volumen = 10, start_temp = 20, umg_temp = 20, rpm = 100, wandmaterial = 'steel', wandstaerke = 0.005):
+    def __init__(self, volumen = 10, start_temp = 20, umg_temp = 20, rpm = 100, wandmaterial = 'stahl', wandstaerke = 0.005):
+
+        # Speichere die Starttemperatur für reset()
+        self.start_temp = start_temp
 
         # Thermophysikalische Eigenschaften des Mediums (Wasser)
         temp_k = start_temp + 273.15                                                                # Temperatur in Kelvin
-        self.volumen = volumen / 1000                                                               # Umrechnung Volumen des Reaktorinhalts von l in m³
         self.spez_c = PropsSI("Cpmass", "T", (temp_k), "P", 101325, "Water")                        # Spezifische Wärmekapazität des Mediums(Wasser) in J/(kg*K) 
         self.dichte = PropsSI("Dmass" ,"T", (temp_k), "P", 101325, "Water")                         # Dichte des Mediums (Wasser) in kg/m³
 
         # Geometrie des Bioreaktors (Zylinder, Annahme: H = 2 * r)
+        self.volumen = volumen / 1000                                                                # Volumen des Bioreaktors in m³ (Liter → m³)
         self.radius = (self.volumen / (2 * np.pi)) ** (1/3)                                         # Radius des Bioreaktors in m 
         self.hoehe  = 2 * self.radius                                                               # Höhe des Bioreaktors in m 
         self.flaeche = 2 * np.pi * (self.radius ** 2) + 2 * np.pi * self.radius * self.hoehe        # Innenfläche des Bioreaktor in m² 
@@ -70,6 +73,7 @@ class Bioreaktor:
         """
         Gibt die Wärmeleitfähigkeit [W/mK] für ein gegebenes Wandmaterial zurück.
         """
+        material = str(material).lower()
         material_db = {
             'Stahl': 21.0,                                                                          # Edelstahl V2A
             'Glas': 1.4,                                                                            # Quarzglas     
@@ -110,13 +114,12 @@ class Bioreaktor:
 
         return self.ist_temp
     
-    def reset(self):
-        """
-        Setzt die Innentemperatur des Reaktors auf den Startwert zurück.
-        """
-        self.ist_temp = self.start_temp
+    def reset(self, start_temp=None):
+        if start_temp is None:
+            self.ist_temp = self.start_temp
+        else:
+            self.ist_temp = start_temp
                                                         
-    
 ## PID-Regler-Klasse
  # Implementieren Sie einen PID-Regler, um eine Zieltemperatur zu halten
 
@@ -134,6 +137,7 @@ class PID:
         self.fehler_vor = 0.0                                                                       # Vorheriger Fehler für den D-Anteil
         self.dt_vor = -1e-6                                                                         # Vorheriger Zeitschritt (initialisiert mit einem sehr kleinen Wert)       
         self.integral = 0.0                                                                         # Integralwert für den I-Anteil
+        self.bioreaktor = bioreaktor                                                                # Optional Referenz auf Bioreaktor, um Wärmeverluste zu berücksichtige
         
     def run(self, sollwert, istwert):
         """
@@ -230,7 +234,7 @@ temps_pid, temps_offen, leistungen = [], [], []
 
 reaktor_pid.reset(start_temp) 
 pid.reset()
-reaktor_ungeregelt.reset(start_temp)
+reaktor_ungeregelt.reset(start_temp)  # Reset für unregulierten Reaktor
 
 for t in range(n_steps):
     # PID-geregeltes System
