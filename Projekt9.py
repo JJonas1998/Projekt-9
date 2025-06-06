@@ -75,8 +75,8 @@ class Bioreaktor:
         """
         material = str(material).lower()
         material_db = {
-            'Stahl': 21.0,                                                                          # Edelstahl V2A
-            'Glas': 1.4,                                                                            # Quarzglas     
+            'stahl': 21.0,                                                                          # Edelstahl V2A
+            'slas': 1.4,                                                                            # Quarzglas     
         }                                                       
         return material_db.get(material.lower(), 16.0)                                              # default: Stahl     
 
@@ -137,9 +137,8 @@ class PID:
         self.fehler_vor = 0.0                                                                       # Vorheriger Fehler für den D-Anteil
         self.dt_vor = -1e-6                                                                         # Vorheriger Zeitschritt (initialisiert mit einem sehr kleinen Wert)       
         self.integral = 0.0                                                                         # Integralwert für den I-Anteil
-        self.bioreaktor = bioreaktor                                                                # Optional Referenz auf Bioreaktor, um Wärmeverluste zu berücksichtige
         
-    def run(self, sollwert, istwert):
+    def run(self, sollwert, istwert, offset = 0.0):
         """
         Berechnet PID-Ausgabe
         
@@ -168,7 +167,7 @@ class PID:
         i_anteil = self.ki * self.integral                                                           # Integralanteil  
         
         # D-Anteil
-        d_anteil = self.kd * (fehler - self.fehler_vor) / (self.dt - self.dt_vor)                    # Differentialanteil (Ableitung des Fehlers)
+        d_anteil = self.kd * (fehler - self.fehler_vor) / self.dt if self.dt != 0 else 0.0          # Differentialanteil (Ableitung des Fehlers)
         
         # Ausgabe berechnen
         stellgroesse = offset + p_anteil + i_anteil + d_anteil                                       # PID-Ausgabe (Stellgröße)
@@ -180,9 +179,12 @@ class PID:
         elif stellgroesse < self.output_min:
             output = self.output_min
             self.integral -= fehler * self.dt                                                        # Anti-Windup
+        else:
+            output = stellgroesse                                                                    # Stellgröße innerhalb der Grenzen
 
         self.dt_vor = self.dt                                                                        # Aktuellen Zeitschritt speichern    
         self.fehler_vor = fehler                                                                     # Aktuellen Fehler speichern
+        
         return output
     
     def reset(self):
@@ -210,7 +212,7 @@ with st.sidebar:
     start_temp = st.slider("Starttemperatur (°C)", 0, 40, 20)
     umg_temp = st.slider("Umgebungstemperatur (°C)", 0, 40, 20)
     wandmaterial = st.selectbox("Wandmaterial", ["Stahl", "Glas"])                                                                         
-    wandstärke = st.slider("Wandstärke (mm)", 1, 20, 5) / 1000                          
+    wandstaerke = st.slider("Wandstärke (mm)", 1, 20, 5) / 1000                          
     soll_temp = st.slider("Solltemperatur (°C)", 20, 80, 37)
     simdauer = st.slider("Simulationsdauer (min)", 1, 180, 60)
     dt = st.slider("Zeitschritt (s)", 1, 60, 5)
@@ -223,8 +225,8 @@ with st.sidebar:
     st.caption("Tipp: Variiere die Reglerparameter und beobachte die Auswirkungen auf die Temperaturregelung.")
 
 # Initialisierung der Bioreaktor- und PID-Regler-Objekte
-reaktor_pid = Bioreaktor(volumen, start_temp, umg_temp,rpm, wandmaterial, wandstaerke = wandstärke)
-pid = PID(kp=kp, ki=ki, kd=kd, dt=dt)
+reaktor_pid = Bioreaktor(volumen, start_temp, umg_temp,rpm, wandmaterial, wandstaerke)
+pid = PID(kp=kp, ki=ki, kd=kd, dt=dt, bioreaktor = reaktor_pid)
 reaktor_ungeregelt = Bioreaktor(volumen, start_temp, umg_temp, rpm, wandmaterial, wandstaerke = wandstärke)  # Ungeregelter Reaktor für Vergleich
 
 # --- Simulation ---
