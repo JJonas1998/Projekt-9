@@ -1,279 +1,275 @@
+#### Projekt 9: Simulation einer Temperautrregelung von Bioreaktoren
+
+### Ersteller/-in: Jonas Jahrstorfer, Johanna Niklas
+
 import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import time
+from CoolProp.CoolProp import PropsSI
+from fluids import Prandtl
 
-class Bioreactor:
-    """Einfaches Bioreaktor-Modell mit Wärmeübertragung"""
-    
-    def __init__(self, volume=100, heat_capacity=4180, density=1000, 
-                 heat_transfer_coeff=500, ambient_temp=20):
-        self.volume = volume  # Liter
-        self.heat_capacity = heat_capacity  # J/(kg*K) - Wasser
-        self.density = density  # kg/m³
-        self.heat_transfer_coeff = heat_transfer_coeff  # W/(m²*K)
-        self.surface_area = 2 * np.pi * (volume/1000)**(2/3)  # m² (geschätzt)
-        self.ambient_temp = ambient_temp  # °C
-        self.temperature = ambient_temp  # Starttemperatur
-        self.biological_heat = 0  # Wärme durch biologische Prozesse
-        
-    def update_temperature(self, heating_power, dt=1.0):
-        """Temperaturänderung basierend auf Energiebilanz"""
-        # Masse des Reaktorinhalts
-        mass = self.volume * self.density / 1000  # kg
-        
-        # Wärmeverlust an Umgebung
-        heat_loss = self.heat_transfer_coeff * self.surface_area * \
-                   (self.temperature - self.ambient_temp)  # W
-        
-        # Biologische Wärmeproduktion (vereinfacht)
-        bio_heat = self.biological_heat * mass  # W
-        
-        # Netto-Wärmezufuhr
-        net_heat = heating_power + bio_heat - heat_loss  # W
-        
-        # Temperaturänderung
-        dT = (net_heat * dt) / (mass * self.heat_capacity)  # K/s * s = K
-        self.temperature += dT
-        
-        return self.temperature
+## Bioreaktor-Klasse
+#  Schreiben Sie eine Python-Funktion zur Simulation von Temperaturänderungen in einem Bioreaktor
 
-class PIDController:
-    """PID-Regler für Temperaturkontrolle"""
-    
-    def __init__(self, kp=1000, ki=10, kd=50):
-        self.kp = kp  # Proportionalverstärkung
-        self.ki = ki  # Integralverstärkung  
-        self.kd = kd  # Differentialverstärkung
-        self.setpoint = 37.0  # Zieltemperatur °C
-        self.integral = 0
-        self.last_error = 0
-        self.dt = 1.0  # Zeitschritt
+class Bioreaktor:
+    """
+    Simuliert einen Bioreaktor mit Temperaturregelung. 
+    Die Temperatur wird durch Heizen/Kühlen, Umgebungseinfluss und optionale Störungen verändert.
+    """
+    def __init__(self, volumen = 10, start_temp = 20, umg_temp = 20, rpm = 100, wandmaterial = 'steel', wandstaerke = 0.005):
+
+        # Thermophysikalische Eigenschaften des Mediums (Wasser)
+        temp_k = start_temp + 273.15                                                                # Temperatur in Kelvin
+        self.volumen = volumen / 1000                                                               # Umrechnung Volumen des Reaktorinhalts von l in m³
+        self.spez_c = PropsSI("Cpmass", "T", (temp_k), "P", 101325, "Water")                        # Spezifische Wärmekapazität des Mediums(Wasser) in J/(kg*K) 
+        self.dichte = PropsSI("Dmass" ,"T", (temp_k), "P", 101325, "Water")                         # Dichte des Mediums (Wasser) in kg/m³
+
+        # Geometrie des Bioreaktors (Zylinder, Annahme: H = 2 * r)
+        self.radius = (self.volumen / (2 * np.pi)) ** (1/3)                                         # Radius des Bioreaktors in m 
+        self.hoehe  = 2 * self.radius                                                               # Höhe des Bioreaktors in m 
+        self.flaeche = 2 * np.pi * (self.radius ** 2) + 2 * np.pi * self.radius * self.hoehe        # Innenfläche des Bioreaktor in m² 
+        self.wandstaerke = wandstaerke                                                              # Wandstärke des Bioreaktors in m
+        self.d_ruehrer = (2 * self.radius) / 3                                                      # Durchmesser des Rührers in m (Annahme: Rührerdurchmesser 1/3 des Reaktordurchmessers) 
+
+        # Betriebsbedingungen
+        self.umg_temp = umg_temp                                                                    # Umgebungstemperatur in °C
+        self.ist_temp = start_temp                                                                  # Reaktor-Innentemperatur in °C (Starttemperatur)
+        self.rpm = rpm                                                                              # Drehzahl des Rührers in 1/min
+
+        # Wärmeübertragung                                                              
+        self.waerme_h = self.berechnung_h()                                                         # Berechnung des Wärmeübergangskoeffizienten in W/(m²*K)     
+        self.lambda_wand = self.get_waermeleitfaehigkeit(wandmaterial)                              # Wärmeleitfähigkeit des Wandmaterials in W/(m*K)                   
         
-    def update(self, current_temp):
-        """PID-Regelung berechnen"""
-        error = self.setpoint - current_temp
-        
-        # Proportional-Anteil
-        p_term = self.kp * error
-        
-        # Integral-Anteil
-        self.integral += error * self.dt
-        i_term = self.ki * self.integral
-        
-        # Differential-Anteil
-        d_term = self.kd * (error - self.last_error) / self.dt
-        self.last_error = error
-        
-        # PID-Output (Heizleistung in W)
-        output = p_term + i_term + d_term
-        
-        # Begrenzung der Heizleistung (0-5000W)
-        output = max(0, min(5000, output))
-        
-        return output, p_term, i_term, d_term
-
-def simulate_system(reactor, controller, duration, with_disturbance=False):
-    """Systemsimulation durchführen"""
-    times = []
-    temperatures = []
-    setpoints = []
-    heating_powers = []
-    p_terms, i_terms, d_terms = [], [], []
-    
-    for t in range(duration):
-        # Störung nach der Hälfte der Zeit
-        if with_disturbance and t == duration // 2:
-            reactor.biological_heat = 20  # W/kg zusätzliche Wärme
-            
-        # PID-Regelung
-        heating_power, p, i, d = controller.update(reactor.temperature)
-        
-        # Reaktor-Update
-        reactor.update_temperature(heating_power)
-        
-        # Daten sammeln
-        times.append(t)
-        temperatures.append(reactor.temperature)
-        setpoints.append(controller.setpoint)
-        heating_powers.append(heating_power)
-        p_terms.append(p)
-        i_terms.append(i)
-        d_terms.append(d)
-    
-    return pd.DataFrame({
-        'Zeit': times,
-        'Temperatur': temperatures,
-        'Sollwert': setpoints,
-        'Heizleistung': heating_powers,
-        'P-Anteil': p_terms,
-        'I-Anteil': i_terms,
-        'D-Anteil': d_terms
-    })
-
-def main():
-    st.title("🧪 Bioreaktor Temperaturregelung Simulation")
-    st.markdown("Simulation eines PID-geregelten Bioreaktors mit Rückkopplungsschleifen")
-    
-    # Sidebar für Parameter
-    st.sidebar.header("📊 Simulationsparameter")
-    
-    # Reaktorparameter
-    st.sidebar.subheader("Reaktor")
-    volume = st.sidebar.slider("Volumen (L)", 50, 500, 100)
-    ambient_temp = st.sidebar.slider("Umgebungstemperatur (°C)", 15, 30, 20)
-    
-    # PID-Parameter
-    st.sidebar.subheader("PID-Regler")
-    kp = st.sidebar.slider("Kp (Proportional)", 100, 2000, 1000)
-    ki = st.sidebar.slider("Ki (Integral)", 1, 50, 10)
-    kd = st.sidebar.slider("Kd (Differential)", 10, 100, 50)
-    setpoint = st.sidebar.slider("Solltemperatur (°C)", 30, 45, 37)
-    
-    # Simulationseinstellungen
-    st.sidebar.subheader("Simulation")
-    duration = st.sidebar.slider("Dauer (Minuten)", 30, 180, 60)
-    with_disturbance = st.sidebar.checkbox("Störung einschalten", False)
-    
-    # Simulation starten
-    if st.button("🚀 Simulation starten"):
-        with st.spinner("Simulation läuft..."):
-            # Objekte erstellen
-            reactor = Bioreactor(volume=volume, ambient_temp=ambient_temp)
-            controller = PIDController(kp=kp, ki=ki, kd=kd)
-            controller.setpoint = setpoint
-            
-            # Simulation durchführen
-            data = simulate_system(reactor, controller, duration, with_disturbance)
-            
-            # Ergebnisse anzeigen
-            st.success("✅ Simulation abgeschlossen!")
-            
-            # Hauptdiagramm - Temperaturverlauf
-            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 10))
-            
-            # Temperatur
-            ax1.plot(data['Zeit'], data['Temperatur'], 'b-', linewidth=2, label='Ist-Temperatur')
-            ax1.plot(data['Zeit'], data['Sollwert'], 'r--', linewidth=2, label='Sollwert')
-            ax1.set_ylabel('Temperatur (°C)')
-            ax1.set_title('Temperaturregelung')
-            ax1.legend()
-            ax1.grid(True, alpha=0.3)
-            
-            # Heizleistung
-            ax2.plot(data['Zeit'], data['Heizleistung'], 'g-', linewidth=2)
-            ax2.set_ylabel('Heizleistung (W)')
-            ax2.set_title('Stellgröße')
-            ax2.grid(True, alpha=0.3)
-            
-            # PID-Anteile
-            ax3.plot(data['Zeit'], data['P-Anteil'], 'r-', alpha=0.7, label='P-Anteil')
-            ax3.plot(data['Zeit'], data['I-Anteil'], 'g-', alpha=0.7, label='I-Anteil') 
-            ax3.plot(data['Zeit'], data['D-Anteil'], 'b-', alpha=0.7, label='D-Anteil')
-            ax3.set_ylabel('PID-Anteile (W)')
-            ax3.set_xlabel('Zeit (min)')
-            ax3.set_title('PID-Komponenten')
-            ax3.legend()
-            ax3.grid(True, alpha=0.3)
-            
-            plt.tight_layout()
-            st.pyplot(fig)
-            
-            # Statistiken
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("🎯 Endtemperatur", f"{data['Temperatur'].iloc[-1]:.1f}°C")
-                
-            with col2:
-                steady_state_error = abs(data['Temperatur'].iloc[-10:].mean() - setpoint)
-                st.metric("📊 Bleibende Regelabweichung", f"{steady_state_error:.2f}°C")
-                
-            with col3:
-                max_overshoot = max(data['Temperatur']) - setpoint
-                st.metric("📈 Max. Überschwingen", f"{max_overshoot:.2f}°C")
-            
-            # Datendownload
-            st.subheader("📥 Simulationsdaten")
-            csv = data.to_csv(index=False)
-            st.download_button(
-                label="CSV herunterladen",
-                data=csv,
-                file_name="bioreactor_simulation.csv",
-                mime="text/csv"
-            )
-            
-            # Datenvorschau
-            with st.expander("📋 Datenvorschau"):
-                st.dataframe(data.head(10))
-    
-    # Theoretischer Hintergrund
-    with st.expander("📚 Theoretischer Hintergrund"):
-        st.markdown("""
-        ### Bioreaktor-Modell
-        Das vereinfachte Modell basiert auf der Energiebilanz:
-        
-        **dT/dt = (Q_heiz + Q_bio - Q_verlust) / (m × cp)**
-        
-        - Q_heiz: Heizleistung (Stellgröße)
-        - Q_bio: Biologische Wärmeproduktion  
-        - Q_verlust: Wärmeverlust an Umgebung
-        - m: Masse des Reaktorinhalts
-        - cp: Wärmekapazität
-        
-        ### PID-Regler
-        **u(t) = Kp×e(t) + Ki×∫e(t)dt + Kd×de(t)/dt**
-        
-        - Kp: Proportionalverstärkung (schnelle Reaktion)
-        - Ki: Integralverstärkung (eliminiert bleibende Abweichung)
-        - Kd: Differentialverstärkung (dämpft Schwingungen)
-        """)
-
-if __name__ == "__main__":
-    main()
-
-
-
-
-
-
-
-
-
-
-
-
-    def set_stoerung(self, wert):
-        """Setzt die Störgröße (z.B. plötzliche Wärmezufuhr, wirkt einmalig im nächsten Schritt)."""
-        self.stoerung = wert
-    
-    def update(self, leistung, dt=1.0):
+    def berechnung_h(self):
         """
-        Führt einen Simulationsschritt durch.
-        leistung: Heiz- oder Kühlleistung (vom Regler, wird automatisch begrenzt)
-        dt: Zeitschritt (Standard 1 Sekunde)
+        Berechnung des Wärmeübergangskoeffizienten h anhand von Impeller-Drehzahl (rpm) und Rührerdurchmesser.
         """
-        # Begrenzung der Heiz-/Kühlleistung
-        leistung = min(max(leistung, -self.max_cool), self.max_heat)
+        t_k = self.ist_temp + 273.15                                                                # Umrechnung der Innentemperatur in Kelvin   
+        
+        # Thermophysikalische Eigenschaften des Fluids                                                                                              
+        k   = PropsSI("CONDUCTIVITY", "T", t_k, "P", 101325, "Water")                               # Wärmeleitfähigkeit des Mediums (Wasser) in W/(m*K)    
+        mu  = PropsSI("VISCOSITY" ,"T", t_k, "P", 101325, "Water")                                  # Dynamische Viskosität des Mediums (Wasser) in Pa*s    
 
-        # Temperaturdifferenz zur Umgebung (Abkühlung/Erwärmung)
-        verlust = -self.waermeverlust * (self.temperatur - self.umgebung) * dt
+        # Dimensionlose Kennzahlen 
+        Re = ((self.rpm / 60) * (self.d_ruehrer ** 2) * self.dichte) / mu                           # Reynolds-Zahl des Mediums (Wasser) im Bioreaktor    
+        Pr = Prandtl(self.spez_c, mu, k)                                                            # Prandtl-Zahl des Mediums (Wasser) im Bioreaktor    
 
-        # Temperaturänderung durch Leistung + Störgröße
-        self.temperatur += verlust + leistung * dt + self.stoerung
+        # Nusselt-Zahl und Wärmeübergangskoeffizient
+        if 4.5e3 < Re < 1e4 and 0.6 < Pr < 160:
+            Nu = 0.354 * (Re ** 0.714) * (Pr ** 0.260)                                              # Nusselt-Zahl für turbulente Strömung (Impeller)                                       
+        elif Re >= 1e4 and Pr >= 0.6:
+            Nu = 0.023 * (Re ** 0.8) * (Pr ** 0.4)                                                  # Nusselt-Zahl für turbulente Strömung (Dittus-Boelter)                                                  
+        else:
+            Nu = 3.66                                                                               # Nusselt-Zahl für laminare Strömung       
+                                                                                                                                                                              
+        return Nu * k / self.d_ruehrer    
 
-        # Störgröße wirkt nur einmal
-        self.stoerung = 0.0
-        return self.temperatur
-    
-    def reset(self, start_temp=None):
-        """Setzt die Temperatur auf Startwert zurück."""
-        if start_temp is not None:
-            self.temperatur = start_temp
+    def get_waermeleitfaehigkeit(self, material):
+        """
+        Gibt die Wärmeleitfähigkeit [W/mK] für ein gegebenes Wandmaterial zurück.
+        """
+        material_db = {
+            'Stahl': 21.0,                                                                          # Edelstahl V2A
+            'Glas': 1.4,                                                                            # Quarzglas                                                                              
+            'Aluminium': 230.0                                                                      # Aluminium
+        }
+        return material_db.get(material.lower(), 16.0)                                              # default: Stahl     
+
+    def berechnung_waermeverlust(self):
+        """
+        Berechnung des gesamten Wärmeverlusts: 
+        - durch die Wand (Fourier)
+        - durch Konvektion mit h (z. B. Luft/Wasserbad)
+        """
+        # Temperaturdifferenz zwischen Innen- und Außentemperatur
+        delta_t = self.ist_temp - self.umg_temp                                                        
+
+        # 1. Leitung durch Wandmaterial
+        q_leitung = self.lambda_wand * (delta_t * self.flaeche / self.wandstaerke)                  # Fourier'sches Gesetz: Q = λ * ( ΔT * A / d) 
+
+        # 2. Konvektiver Verlust an Umgebung
+        q_konvektion = self.waerme_h * self.flaeche * delta_t                                       # Konvektionsverlust: Q = h * A * ΔT 
+
+        # Gesamtverlust
+        q_verlust = q_leitung + q_konvektion                                                        # Gesamtwärmeverlust in W (Wärmeleitung + Konvektion)    
+
+        return q_verlust
+
+    def update_temperature(self, leistung, zeitintervall = 1):
+        """
+        Aktualisiert die Innentemperatur des Reaktors auf Basis der Energiebilanz:
+        ΔT = (Q_zufuhr - Q_verlust) * dt / (m * c)
+        """
+        # Berechnung der Masse des Reaktorinhalts und Wärmeverlust
+        masse = self.dichte * self.volumen                                                          # Masse des Reaktorinhalts in kg 
+        waermeverlust = self.berechnung_waermeverlust()                                             # Gesamtwärmeverlust in W 
+        energie_netto = (leistung - waermeverlust) * zeitintervall                                  # Netto-Energiezufuhr in J (Leistung - Wärmeverlust) * Zeitintervall in s
+        temp_delta = energie_netto / (masse * self.spez_c)                                          # Temperaturänderung in K 
+        self.ist_temp += temp_delta                                                                 # Aktualisierung der Innentemperatur des Reaktors in °C
+
+        return self.ist_temp
 
 ## PID-Regler-Klasse
-# Implementieren Sie einen PID-Regler, um eine Zieltemperatur zu halten.
+#  Implementieren Sie einen PID-Regler, um eine Zieltemperatur zu halten
+
+class PID:
+    """
+    PID-Regler zur Regelung der Temperatur eines Bioreaktors.
+    """
+    def __init__(self, dt = 0.0, kp = 0.0, ki = 0.0, kd = 0.0, output_min = 0, output_max = 1000):
+        self.dt = dt                                                                                # Zeitschritt in Sekunden
+        self.kp = kp                                                                                # Proportionalanteil  
+        self.ki = ki                                                                                # Integralanteil    
+        self.kd = kd                                                                                # Differentialanteil
+        self.output_min = output_min                                                                # Minimalwert der Stellgröße (Heizleistung)
+        self.output_max = output_max                                                                # Maximalwert der Stellgröße (Heizleistung)
+        self.fehler_vor = 0.0                                                                       # Vorheriger Fehler für den D-Anteil
+        self.dt_vor = -1e-6                                                                         # Vorheriger Zeitschritt (initialisiert mit einem sehr kleinen Wert)       
+        self.integral = 0.0                                                                         # Integralwert für den I-Anteil
+        
+    def run(self, sollwert, istwert):
+        """
+        Berechnet PID-Ausgabe
+        
+        Args:
+            sollwert: Zieltemperatur
+            istwert: Aktuelle Temperatur
+            
+        Returns:
+            Stellgröße (Heizleistung)
+        """
+
+        # Offset-Berechnung nur wenn Bioreaktor-Referenz vorhanden
+        if self.bioreaktor is not None:                                         
+            offset = self.bioreaktor.berechnung_waermeverlust()          
+        else:
+            offset = 0.0
+
+        # Fehlerberechnung
+        fehler = sollwert - istwert                                                                  # Berechnung des Fehlers (Sollwert - Istwert)
+        
+        # P-Anteil
+        p_anteil = self.kp * fehler                                                                  # Proportionalanteil
+        
+        # I-Anteil
+        self.integral += fehler * self.dt                                                            # Integralwert aktualisieren
+        i_anteil = self.ki * self.integral                                                           # Integralanteil  
+        
+        # D-Anteil
+        d_anteil = self.kd * (fehler - self.fehler_vor) / (self.dt - self.dt_vor)                    # Differentialanteil (Ableitung des Fehlers)
+        
+        # Ausgabe berechnen
+        stellgroesse = offset + p_anteil + i_anteil + d_anteil                                       # PID-Ausgabe (Stellgröße)
+        
+        # Begrenzung
+        if stellgroesse > self.output_max:
+            output = self.output_max
+            self.integral -= fehler * self.dt                                                        # Anti-Windup
+        elif stellgroesse < self.output_min:
+            output = self.output_min
+            self.integral -= fehler * self.dt                                                        # Anti-Windup
+
+        self.dt_vor = self.dt                                                                        # Aktuellen Zeitschritt speichern    
+        self.fehler_vor = fehler                                                                     # Aktuellen Fehler speichern
+        return output
+    
+    def reset(self):
+        """Regler zurücksetzen"""
+        self.fehler_vor = 0.0
+        self.integral = 0.0
 
 
 
+
+
+
+
+# --- Streamlit UI und Simulation ---
+
+st.title("Simulation der Temperaturregelung im Bioreaktor")
+st.write("**Projekt 9 – Temperaturregelung von Bioreaktoren**")
+
+# Seitenleiste: Parameterwahl
+st.sidebar.header("Simulationseinstellungen")
+
+# Reaktor-Parameter
+volumen = st.sidebar.number_input("Volumen [L]", 1.0, 200.0, 10.0)
+start_temp = st.sidebar.number_input("Starttemperatur [°C]", 0.0, 120.0, 20.0)
+umg_temp = st.sidebar.number_input("Umgebungstemperatur [°C]", 0.0, 120.0, 20.0)
+wandmaterial = st.sidebar.selectbox("Wandmaterial", ["Stahl", "Glas", "Aluminium"])
+wandstaerke = st.sidebar.number_input("Wandstärke [m]", 0.001, 0.02, 0.005, 0.001)
+rpm = st.sidebar.number_input("Drehzahl Rührer [1/min]", 10, 500, 100, 10)
+
+# PID-Parameter
+st.sidebar.header("PID-Parameter")
+sollwert = st.sidebar.number_input("Solltemperatur [°C]", 0.0, 120.0, 37.0)
+kp = st.sidebar.slider("Kp (Proportionalanteil)", 0.0, 2000.0, 400.0, 10.0)
+ki = st.sidebar.slider("Ki (Integralanteil)", 0.0, 100.0, 1.0, 0.1)
+kd = st.sidebar.slider("Kd (Differentialanteil)", 0.0, 1000.0, 50.0, 5.0)
+output_max = st.sidebar.number_input("Max. Heizleistung [W]", 100.0, 5000.0, 1000.0, 10.0)
+
+# Simulationsdauer und Zeitintervall
+sim_time = st.sidebar.number_input("Simulationsdauer [s]", 10, 18000, 3600, 10)
+dt = st.sidebar.number_input("Zeitschritt [s]", 0.1, 60.0, 5.0, 0.1)
+steps = int(sim_time / dt)
+
+# Buttons
+run = st.button("Simulation starten")
+
+# --- Simulation ---
+if run:
+    # Initialisiere Reaktoren und PID
+    reaktor_pid = Biorektor(volumen, start_temp, umg_temp, rpm, wandmaterial, wandstaerke)
+    reaktor_frei = Biorektor(volumen, start_temp, umg_temp, rpm, wandmaterial, wandstaerke)
+    pid = PID(dt, kp, ki, kd, 0, output_max)
+    pid.bioreaktor = reaktor_pid  # Offset-Kompensation
+
+    temps_pid = []
+    temps_frei = []
+    stellgroessen = []
+
+    for step in range(steps):
+        # PID-Regelung
+        leistung = pid.run(sollwert, reaktor_pid.ist_temp)
+        temp_pid = reaktor_pid.update_temperature(leistung, dt)
+        temps_pid.append(temp_pid)
+        stellgroessen.append(leistung)
+        # Ohne Regelung
+        temp_frei = reaktor_frei.update_temperature(0.0, dt)
+        temps_frei.append(temp_frei)
+
+    # Ergebnisse als DataFrame
+    df = pd.DataFrame({
+        "Zeit_s": np.arange(0, sim_time, dt),
+        "Temp_PID": temps_pid,
+        "Temp_frei": temps_frei,
+        "Stellgröße": stellgroessen
+    })
+
+    # Plot Temperaturverlauf
+    fig, ax = plt.subplots()
+    ax.plot(df["Zeit_s"], df["Temp_PID"], label="Mit PID-Regelung")
+    ax.plot(df["Zeit_s"], df["Temp_frei"], label="Ohne Regelung")
+    ax.axhline(sollwert, color='r', linestyle='--', label="Sollwert")
+    ax.set_xlabel("Zeit [s]")
+    ax.set_ylabel("Temperatur [°C]")
+    ax.legend()
+    st.pyplot(fig)
+
+    # Plot Stellgröße (Heizleistung)
+    fig2, ax2 = plt.subplots()
+    ax2.plot(df["Zeit_s"], df["Stellgröße"], label="Heizleistung (PID)")
+    ax2.set_xlabel("Zeit [s]")
+    ax2.set_ylabel("Leistung [W]")
+    ax2.legend()
+    st.pyplot(fig2)
+
+    st.write("**Stellgröße (Heizleistung) und Temperaturverlauf**")
+    st.dataframe(df)
+
+    st.info("Passe die Parameter in der Seitenleiste an und starte die Simulation erneut, um die Wirkung zu untersuchen.")
+
+else:
+    st.write("**Wähle Parameter und starte die Simulation!**")
