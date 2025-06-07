@@ -41,7 +41,7 @@ class Bioreaktor:
 
         # Wärmeübertragung                                                              
         self.h_intern = self.berechnung_h()                                                         # Berechnung des Wärmeübergangskoeffizienten in W/(m²*K)   
-        self.h_extern = 10.0                                                                        # Externer Wärmeübergangskoeffizient (Luft) in W/(m²*K)  
+        self.h_extern = 1.0                                                                        # Externer Wärmeübergangskoeffizient (Luft) in W/(m²*K)  
         self.lambda_wand = self.get_waermeleitfaehigkeit(wandmaterial)                              # Wärmeleitfähigkeit des Wandmaterials in W/(m*K)                   
         
     def berechnung_h(self):
@@ -82,8 +82,6 @@ class Bioreaktor:
     def berechnung_waermeverlust(self):
 
         delta_t = self.ist_temp - self.umg_temp
-        if delta_t <= 0:
-            return 0.0
 
         A = self.flaeche
         d = self.wandstaerke
@@ -99,7 +97,7 @@ class Bioreaktor:
         R_gesamt = R_int + R_cond + R_ext
         q_verlust = delta_t / R_gesamt
 
-        return max(q_verlust, 0.0)
+        return q_verlust
     
     def update_temperature(self, leistung, zeitintervall = 1):
         """
@@ -110,9 +108,6 @@ class Bioreaktor:
         temp_k = self.ist_temp + 273.15
         self.spez_c = PropsSI("Cpmass", "T", temp_k, "P", 101325, "Water")
         self.dichte = PropsSI("Dmass", "T", temp_k, "P", 101325, "Water")
-        self.waerme_h = self.berechnung_h()
-
-        # Berechnung des Wärmeübergangskoeffizienten
         self.h_intern = self.berechnung_h()                                                         # Aktualisierung des internen Wärmeübergangskoeffizienten in W/(m²*K)
         
         # Berechnung der Masse des Reaktorinhalts und Wärmeverlust
@@ -137,15 +132,14 @@ class PID:
     """
     PID-Regler zur Regelung der Temperatur eines Bioreaktors.
     """
-    def __init__(self, kp = 0.0, ki = 0.0, kd = 0.0, dt = 0.0, output_min = 0, output_max = 1000000):
+    def __init__(self, kp = 0.0, ki = 0.0, kd = 0.0, dt = 0.0, output_min = -1000, output_max = 1000):
         self.dt = dt                                                                                # Zeitschritt in Sekunden
         self.kp = kp                                                                                # Proportionalanteil  
         self.ki = ki                                                                                # Integralanteil    
         self.kd = kd                                                                                # Differentialanteil
         self.output_min = output_min                                                                # Minimalwert der Stellgröße (Heizleistung)
         self.output_max = output_max                                                                # Maximalwert der Stellgröße (Heizleistung)
-        self.fehler_vor = 0.0                                                                       # Vorheriger Fehler für den D-Anteil
-        self.dt_vor = -1e-6                                                                         # Vorheriger Zeitschritt (initialisiert mit einem sehr kleinen Wert)       
+        self.fehler_vor = 0.0                                                                       # Vorheriger Fehler für den D-Anteil                                                                          
         self.integral = 0.0                                                                         # Integralwert für den I-Anteil
         
     def run(self, sollwert, istwert):
@@ -170,8 +164,9 @@ class PID:
         i_anteil = self.ki * self.integral                                                           # Integralanteil  
         
         # D-Anteil
-        d_anteil = self.kd * (fehler - self.fehler_vor) / self.dt if self.dt > 0 else 0.0          # Differentialanteil (Ableitung des Fehlers)
-        
+        if self.dt > 0:
+            d_anteil = self.kd * (fehler - self.fehler_vor) / self.dt                               # Differentialanteil
+            
         # Ausgabe berechnen
         stellgroesse = p_anteil + i_anteil + d_anteil                                               # PID-Ausgabe (Stellgröße)
         
@@ -214,19 +209,19 @@ Die Auswirkungen der Regelparameter auf die Temperaturregelung können direkt be
 
 with st.sidebar:
     st.header("Simulationsparameter")    
-    volumen = st.slider("Reaktorvolumen (l)", 1, 10, 5)
+    volumen = st.slider("Reaktorvolumen (l)", 1, 100, 5)
     start_temp = st.slider("Starttemperatur (°C)", 0, 40, 20)
     umg_temp = st.slider("Umgebungstemperatur (°C)", 0, 40, 20)
     wandmaterial = st.selectbox("Wandmaterial", ["Stahl", "Glas"])                                                                         
-    wandstaerke = st.slider("Wandstärke (mm)", 1, 20, 5) / 1000                          
+    wandstaerke = st.slider("Wandstärke (mm)", 1, 100, 5)                         
     soll_temp = st.slider("Solltemperatur (°C)", 20, 80, 37)
     simdauer = st.slider("Simulationsdauer (min)", 1, 180, 60)
     dt = st.slider("Zeitschritt (s)", 1, 60, 5)
-    rpm = st.slider("Rührerdrehzahl (1/min)", 1, 120, 60)
+    rpm = st.slider("Rührerdrehzahl (1/min)", 1, 240, 60)
     st.header("PID-Parameter")
     kp = st.slider("Kp (proportional)", 0.0, 100.0, 10.0, 0.1)
     ki = st.slider("Ki (integral)", 0.0, 5.0, 0.5, 0.01)
-    kd = st.slider("Kd (differential)", 0.0, 10.0, 1.0, 0.01)
+    kd = st.slider("Kd (differential)", 0.0, 100.0, 1.0, 0.01)
     st.markdown("---")
     st.caption("Tipp: Variiere die Reglerparameter und beobachte die Auswirkungen auf die Temperaturregelung.")
 
