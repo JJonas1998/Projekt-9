@@ -31,6 +31,7 @@ class Bioreaktor:
         self.temp_k = self.start_temp + 273.15  # Umrechnung in Kelvin
         self.spez_c = PropsSI("Cpmass", "T", self.temp_k, "P", 101325, "Water")  # Spezifische Wärmekapazität in J/(kg·K)
         self.dichte = PropsSI("Dmass", "T", self.temp_k, "P", 101325, "Water")  # Dichte in kg/m³
+    
 
         # Geometrie des Bioreaktors (Zylinder, Annahme: H = 3 * r)
         self.volumen = volumen / 1000  # Volumen in m³ (Liter → m³)
@@ -95,7 +96,7 @@ class Bioreaktor:
             'kunststoff': 0.3,
             'aluminium': 230.0
         }
-        return material_db.get(material, 16.0)
+        return material_db.get(material, 46.0)
 
     def berechnung_waermeverlust(self):
         """Berechnet den Wärmeverlust des Reaktors basierend auf Temperaturdifferenz und Wärmeübergangskoeffizienten.
