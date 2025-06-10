@@ -1,102 +1,122 @@
+##### Hochschule Weihenstephan-Triesdorf
+##### Programmierung für Datenanalyse, Bildverarbeitung und Simulation 
+##### Betreuerin: Prof. Dr. Kristina Eisen
+
 #### Projekt 9: Simulation einer Temperautrregelung von Bioreaktoren 
 
 ### Ersteller/-in: Jonas Jahrstorfer, Johanna Niklas
-
 ### Datum: 13.06.2025
 
-# Importiere benötigte Bibliotheken
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
+
 from CoolProp.CoolProp import PropsSI
 from fluids import Prandtl
 
 ## Bioreaktor-Klasse
 class Bioreaktor:
-    """Simuliert einen Bioreaktor mit Temperaturregelung. 
-    Die Temperatur wird durch Heizen, Kühle und Umgebungseinflüsse verändert.
+    """Simuliert die Temperaturentwicklung in einem Bioreaktor.
+
+    Die Temperatur wird beeinflusst durch Heizen, Kühlen und Umwelteinflüsse.
     """
-    def __init__(self, 
-        volumen = 10, 
-        start_temp = 20, 
-        umg_temp = 20, 
-        rpm = 100, 
-        wandmaterial = 'stahl', 
-        wandstaerke = 5):
-            
-        # Speichere die Starttemperatur für reset()
-        self.start_temp = start_temp
+
+    def __init__(
+                self, 
+                reaktor_vol = 10, 
+                t_start = 20, 
+                t_umgebung = 20, 
+                drehz = 100, 
+                wand_mat = 'stahl', 
+                wand_stk = 5):
+        """Initialisiert den Bioreaktor mit Volumen, Temperatur und Materialeigenschaften.
+        """
+
+        # Speichert die Starttemperatur für einen späteren Reset
+        self.t_start = t_start
 
         # Thermophysikalische Eigenschaften des Mediums (Wasser)
-        self.update_stoffwerte(start_temp)
+        self.update_stoffwerte(t_start)
 
-        # Geometrie des Bioreaktors (Zylinder, Annahme: H = 3 * r)
-        self.volumen = volumen / 1000  # Volumen in m³ (Liter → m³)
-        self.wandstaerke = wandstaerke / 1000  # Wandstärke in m (mm → m)
-        self.r_i = (self.volumen / (2 * np.pi)) ** (1/3)  # Innenradius in m 
-        self.r_a = self.r_i + self.wandstaerke  # Außenradius in m
-        self.h_i = 3 * self.r_i  # Innenhöhe in m 
-        self.h_a = self.h_i + 2 * self.wandstaerke  # Außenhöhe in m
-        self.flaeche_i = 2 * np.pi * (self.r_i ** 2) + 2 * np.pi * self.r_i * self.h_i # Innenfläche in m²
-        self.flaeche_a = 2 * np.pi * (self.r_a ** 2) + 2 * np.pi * self.r_a * self.h_a  # Außenfläche in m²
-        self.d_ruehrer = (2 * self.r_i) / 3  # Rührerdurchmesser in m
+        # Geometrie des Bioreaktors (Zylinderform, Annahme: H = 3 * r)
+        self.reaktor_vol = reaktor_vol / 1000                   # Volumen in m³ (Umrechnung von L in m³)
+        self.wand_stk = wand_stk / 1000                         # Wandstärke in m (Umrechnung von mm in m)
+        self.r_i = (self.reaktor_vol / (2 * np.pi)) ** (1 / 3)  # Innenradius in m 
+        self.r_a = self.r_i + self.wand_stk                     # Außenradius in m
+        self.h_i = 3 * self.r_i                                 # Innenhöhe in m 
+        self.h_a = self.h_i + 2 * self.wand_stk                 # Außenhöhe in m
+        self.flaeche_i = 2 * np.pi * self.r_i**2 + 2 * np.pi * self.r_i * self.h_i  # Innenfläche in m²
+        self.flaeche_a = 2 * np.pi * self.r_a**2 + 2 * np.pi * self.r_a * self.h_a  # Außenfläche in m²
+        self.ruehrer_d = (2 * self.r_i) / 3                     # Rührerdurchmesser in m (Annahme: 1/3 des Innendurchmessers)
 
         # Betriebsbedingungen
-        self.umg_temp = umg_temp  # Umgebungstemperatur in °C
-        self.ist_temp = start_temp  # Aktuelle Temperatur in °C
-        self.n = rpm / 60  # Rührerdrehzahl in 1/s (1/min → 1/s)
+        self.t_umgebung = t_umgebung    # Umgebungstemperatur in °C 
+        self.t_ist = t_start            # Aktuelle Temperatur in °C
+        self.drehz = drehz / 60         # Rührerdrehzahl in 1/s (Umrechnung von 1/min in 1/s) 
 
         # Wärmeübertragung                                                              
-        self.h_intern = self.berechnung_h_intern()  # Interner Wärmeübergangskoeffizient
-        self.h_extern = 35  # Externer Wärmeübergangskoeffizient (natürliche Konvektion an Luft in W/(m²·K))
-        self.lambda_wand = self.get_lambda(wandmaterial)  # Wärmeleitfähigkeit des Wandmaterials in W/(m·K)
+        self.h_int = self.berech_h_int()                 # Interner Wärmeübergangskoeffizient in W/(m²·K)
+        self.h_ext = 35                                  # Externer Wärmeübergangskoeffizient in W/(m²·K) (naturliche Konvektion)
+        self.lambda_wand = self.berech_lambda(wand_mat)  # Wärmeleitfähigkeit des Wandmaterials in W/(m·K)
         
         # Physikalische Grenzen
-        self.max_leistung = 5000  # maximale Heizleistung in W
+        self.max_leistung = 5000   # maximale Heizleistung in W
         self.min_leistung = -2000  # maximale Kühlleistung in W
-        
-    def update_stoffwerte(self, temp):
-        """Aktualisiert die thermophysikalischen Eigenschaften des Mediums (Wasser).
-        """
-        try:
-            temp_k = temp + 273.15
-            self.spez_c = PropsSI("Cpmass", "T", temp_k, "P", 101325, "Water")  # Spezifische Wärmekapazität in J/(kg·K)
-            self.dichte = PropsSI("Dmass", "T", temp_k, "P", 101325, "Water")  # Dichte in kg/m³
-            self.k = PropsSI("CONDUCTIVITY", "T", temp_k, "P", 101325, "Water")  # Wärmeleitfähigkeit in W/(m·K)
-            self.mu = PropsSI("VISCOSITY", "T", temp_k, "P", 101325, "Water")  # Dynamische Viskosität in Pa·s
-        except Exception:
-            self.spez_c = 4186  
-            self.dichte = 1000
-            self.k = 0.606
-            self.mu = 0.001002
 
-    def berechnung_h_intern(self):
-        """Berechnung des Wärmeübergangskoeffizienten h anhand von Impeller-Drehzahl (rpm) und Rührerdurchmesser.
+
+    def update_stoffwerte(self, t):
+        """Aktualisiert die thermophysikalischen Eigenschaften des Mediums (Wasser)."""
+            
+        if 0 < t < 100:  
+            # Umrechnung der Temperatur in Kelvin für CoolProp
+            t_kelvin = t + 273.15   
+            self.spez_c = PropsSI("Cpmass", "T", t_kelvin, "P", 101325, "Water")   # Spezifische Wärmekapazität in J/(kg·K)
+            self.dichte = PropsSI("Dmass", "T", t_kelvin, "P", 101325, "Water")    # Dichte in kg/m³
+            self.k = PropsSI("CONDUCTIVITY", "T", t_kelvin, "P", 101325, "Water")  # Wärmeleitfähigkeit in W/(m·K)
+            self.mu = PropsSI("VISCOSITY", "T", t_kelvin, "P", 101325, "Water")    # Dynamische Viskosität in Pa·s
+        else:   
+            # Fallback-Werte für ungültige Temperaturen
+            self.spez_c = 4186.0    # Spezifische Wärmekapazität in J/(kg·K) (Wasser bei 20°C)
+            self.dichte = 997.0     # Dichte in kg/m³ (Wasser bei 20°C)
+            self.k = 0.606          # Wärmeleitfähigkeit in W/(m·K) (Wasser bei 20°C)
+            self.mu = 0.001002      # Dynamische Viskosität in Pa·s (Wasser bei 20°C)
+
+###############
+
+
+
+
+
+    def berech_h_int(self):
+        """Berechnung des Wärmeübergangskoeffizienten h.
+         
+        Anhand von Impeller-Drehzahl (rpm) und Rührerdurchmesser.
         """
+
         try:
             # Dimensionslose Kennzahlen
-            Re = self.n * (self.d_ruehrer ** 2) * self.dichte / self.mu  # Reynolds-Zahl
-            Pr = Prandtl(self.spez_c, self.mu, self.k)  # Prandtl-Zahl
+            Re = self.drehz * (self.ruehrer_d ** 2) * self.dichte / self.mu  # Reynolds-Zahl
+            Pr = Prandtl(self.spez_c, self.mu, self.k)                       # Prandtl-Zahl
             
             # Nusselt-Zahl basierend auf Reynolds- und Prandtl-Zahl
             if 4.5e3 < Re < 1e4 and 0.6 < Pr < 160:  
                 Nu = 0.354 * (Re ** 0.714) * (Pr ** 0.260)  # Übergangsbereich (4.5e3 < Re < 1e4, 0.6 < Pr < 160)                                                                              
             elif Re >= 1e4 and Pr >= 0.6:  
-                Nu = 0.023 * (Re ** 0.8) * (Pr ** 0.4)  # Turbulente Strömung (Re >= 10000)                                                                                                
+                Nu = 0.023 * (Re ** 0.8) * (Pr ** 0.4)      # Turbulente Strömung (Re >= 10000)                                                                                                
             else:  
-                Nu = 3.66  # Laminare Strömung (Re < 2300)
+                Nu = 3.66                                   # Laminare Strömung (Re < 2300)
                 
             # Berechnung des Wärmeübergangskoeffizienten h
-            h = Nu * self.k / self.d_ruehrer  # Wärmeübergangskoeffizient in W/(m²·K)
+            h = Nu * self.k / self.ruehrer_d  # Wärmeübergangskoeffizient in W/(m²·K)
 
             return max(h, 150)  # Mindest-Wärmeübergangskoeffizient
         except Exception:
             return 500  # Fallback-Wert bei Fehlern
 
-    def get_lambda(self, material):
+    def berech_lambda(self, wand_mat):
         """Wärmeleitfähigkeit für Wandmaterialien.
         """
-        material = str(material).lower()
+        wand_mat = str(wand_mat).lower()
 
         # Datenbank für Wärmeleitfähigkeiten in W/(m·K)
         material_db = {
@@ -106,21 +126,22 @@ class Bioreaktor:
             'kunststoff': 0.3,
             'aluminium': 230.0
         }
-        return material_db.get(material, 46.0)
+        return material_db.get(wand_mat, 46.0)
 
     def t_verlust(self):
         """Berechnet den Wärmeverlust des Reaktors basierend auf Temperaturdifferenz und Wärmeübergangskoeffizienten.
         """
-        delta_t = self.ist_temp - self.umg_temp  # Temperaturdifferenz in °C
+        
+        delta_t = self.t_ist - self.t_umgebung  # Temperaturdifferenz in °C
         
         # Vermeidung von Division durch Null
         if abs(delta_t) < 0.01:  
             return 0.0
         
         # Berechnung der Wärmeverluste
-        R_int = 1.0 / (self.h_intern * self.flaeche_i)  # Interner Widerstand in K/W
-        R_cond = self.wandstaerke / (self.lambda_wand * self.flaeche_i)  # Widerstand der Wand in K/W
-        R_ext = 1.0 / (self.h_extern * self.flaeche_a)  # Externer Widerstand in K/W
+        R_int = 1.0 / (self.h_int * self.flaeche_i)  # Interner Widerstand in K/W
+        R_cond = self.wand_stk / (self.lambda_wand * self.flaeche_i)  # Widerstand der Wand in K/W
+        R_ext = 1.0 / (self.h_ext * self.flaeche_a)  # Externer Widerstand in K/W
         
         # Gesamtwiderstand
         R_gesamt = R_int + R_cond + R_ext  
@@ -128,54 +149,57 @@ class Bioreaktor:
         
         return q_verlust
     
-    def update_temperatur(self, 
-            leistung, 
-            zeitintervall = 1):
+    def update_temperatur(
+                         self, 
+                         leistung, 
+                         zeitintervall = 1):
         """Aktualisiert die Reaktortemperatur basierend auf der Heizleistung, Kühlleistung, Wärmeverlust und Zeitintervall.
         """
+
         # Leistungsbegrenzung
         leistung = np.clip(leistung, self.min_leistung, self.max_leistung)  
         
         # Eigenschaften aktualisieren
-        self.update_stoffwerte(self.ist_temp)
-        self.h_intern = self.berechnung_h_intern()
+        self.update_stoffwerte(self.t_ist)
+        self.h_int = self.berech_h_int()
         
         # Energiebilanz
-        masse = self.dichte * self.volumen  # Masse des Mediums in kg
+        masse = self.dichte * self.reaktor_vol  # Masse des Mediums in kg
         energie_netto = (leistung - self.t_verlust()) * zeitintervall  # Nettoenergie in J
         temp_delta = energie_netto / (masse * self.spez_c)  # Temperaturänderung in K
         
-        self.ist_temp += temp_delta  
+        self.t_ist += temp_delta  
         
         # Physikalische Grenzen
-        self.ist_temp = max(self.ist_temp, 4)  # Praktische untere Grenze
-        self.ist_temp = min(self.ist_temp, 100)  # Praktische obere Grenze
+        self.t_ist = max(self.t_ist, 4)     # Praktische untere Grenze
+        self.t_ist = min(self.t_ist, 100)   # Praktische obere Grenze
         
-        return self.ist_temp
+        return self.t_ist
     
     def reset(self, 
-        start_temp = None):
+        t_start = None):
         """"Setzt die Ist-Temperatur auf die Starttemperatur zurück und aktualisiert die Stoffwerte.
         """
-        if start_temp is None:
-            self.ist_temp = self.start_temp
+        if t_start is None:
+            self.t_ist = self.t_start
         else:
-            self.ist_temp = start_temp
+            self.t_ist = t_start
         
         # Aktualisiere Stoffwerte und interne Wärmeübergangskoeffizienten
-        self.update_stoffwerte(self.ist_temp)
+        self.update_stoffwerte(self.t_ist)
 
 ## PID-Regler-Klasse
 class PID:
     """PID-Regler zur Regelung der Temperatur eines Bioreaktors.
     """
-    def __init__(self, 
-        kp = 0.0, 
-        ki = 0.0, 
-        kd = 0.0, 
-        dt = 1.0, 
-        output_min = -1000, 
-        output_max = 1000):
+    def __init__(
+                self, 
+                kp = 0.0, 
+                ki = 0.0, 
+                kd = 0.0, 
+                dt = 1.0, 
+                output_min = -2000, 
+                output_max = 5000):
     
         self.kp = kp  # Proportionaler Anteil
         self.ki = ki  # Integraler Anteil
@@ -192,9 +216,13 @@ class PID:
         # Anti-Windup Parameter
         self.integral_max = abs(output_max - output_min) / max(ki, 1e-6)  # Maximales Integral zur Vermeidung von Windup
         
-    def run(self, sollwert, istwert):
+    def run(
+            self, 
+            sollwert, 
+            istwert):
         """Führt einen PID-Regelschritt aus und berechnet die Stellgröße.
         """
+
         # Fehlerberechnung
         fehler = sollwert - istwert  # Regelabweichung
         
@@ -231,11 +259,16 @@ class PID:
         return output
     
     def reset(self):
-        """Regler zurücksetzen
-        """
+        """Regler zurücksetzen."""
+
         self.fehler_vor = 0.0
         self.integral = 0.0
         self.output_vor = 0.0
+
+
+
+
+
 
 ## Streamlit-Anwendung und Simulation
 st.set_page_config(page_title = "Bioreaktor Temperaturregelung", layout = "wide")  
@@ -247,12 +280,12 @@ st.sidebar.markdown("""Passen Sie die Parameter an und beobachten Sie die Auswir
 
 with st.sidebar:
     st.header("Reaktorparameter")    
-    volumen = st.slider("Reaktorvolumen (L)", 1, 100, 10)
-    start_temp = st.slider("Starttemperatur (°C)", 5, 40, 20)
-    umg_temp = st.slider("Umgebungstemperatur (°C)", 5, 40, 20)
-    wandmaterial = st.selectbox("Wandmaterial", ["Stahl", "Glas", "Edelstahl", "Aluminium"])
-    wandstaerke = st.slider("Wandstärke (mm)", 1, 50, 5)
-    rpm = st.slider("Rührerdrehzahl (1/min)", 50, 180, 100)
+    reaktor_vol = st.slider("Reaktorvolumen (L)", 1, 100, 10)
+    t_start = st.slider("Starttemperatur (°C)", 5, 40, 20)
+    t_umgebung = st.slider("Umgebungstemperatur (°C)", 5, 40, 20)
+    wand_mat = st.selectbox("Wandmaterial", ["Stahl", "Glas", "Edelstahl", "Aluminium"])
+    wand_stk = st.slider("Wandstärke (mm)", 1, 50, 5)
+    drehz = st.slider("Rührerdrehzahl (1/min)", 50, 180, 100)
     
     st.header("Sollwert & Simulation")
     soll_temp = st.slider("Solltemperatur (°C)", 25, 80, 37)
@@ -264,7 +297,7 @@ with st.sidebar:
     ki = st.slider("Ki (I-Anteil)", 0.0, 10.0, 1.0, 0.1, help = "Eliminiert bleibende Regelabweichung")
     kd = st.slider("Kd (D-Anteil)", 0.0, 50.0, 5.0, 0.5, help = "Dämpft Schwingungen")
     
-# Hauptbereich mit Tabs
+# Tabs für Simulation und Analyse
 tab1, tab2 = st.tabs(["📊 Simulation", "📋 Analyse"])
 
 with tab1:
@@ -273,22 +306,22 @@ with tab1:
     with col2:
         st.subheader("Reaktor-Eigenschaften")
         
-        # Erstelle Reaktor für Eigenschaften-Anzeige
-        reaktor_info = Bioreaktor(volumen, start_temp, umg_temp, rpm, wandmaterial.lower(), wandstaerke)
+        # Erstelle Bioreaktor-Instanz mit den aktuellen Parametern
+        reaktor_info = Bioreaktor(reaktor_vol, t_start, t_umgebung, drehz, wand_mat.lower(), wand_stk)
         
-        st.metric("Reaktorvolumen", f"{volumen} L")
+        st.metric("Reaktorvolumen", f"{reaktor_vol} L")
         st.metric("Reaktorradius", f"{reaktor_info.r_i*100:.1f} cm")
         st.metric("Reaktorhöhe", f"{reaktor_info.h_i*100:.1f} cm")
         st.metric("Wärmeübertr.-Fläche", f"{reaktor_info.flaeche_i:.2f} m²")
         st.metric("Wärmeleitfähigkeit", f"{reaktor_info.lambda_wand} W/(m·K)")
-    
-    with col1:
+
+with col1:
         # Automatische Simulation (läuft bei jeder Parameter-Änderung)
         try:
             # Initialisierung
-            reaktor_pid = Bioreaktor(volumen, start_temp, umg_temp, rpm, wandmaterial.lower(), wandstaerke)
-            pid = PID(kp=kp, ki=ki, kd=kd, dt=dt, output_min=-2000, output_max=5000)
-            reaktor_ungeregelt = Bioreaktor(volumen, start_temp, umg_temp, rpm, wandmaterial.lower(), wandstaerke)
+            reaktor_pid = Bioreaktor(reaktor_vol, t_start, t_umgebung, drehz, wand_mat.lower(), wand_stk)
+            pid = PID(kp = kp, ki = ki, kd = kd, dt = dt, output_min = -2000, output_max = 5000)
+            reaktor_ungeregelt = Bioreaktor(reaktor_vol, t_start, t_umgebung, drehz, wand_mat.lower(), wand_stk)
             
             # Simulation
             n_steps = int(simdauer * 60 // dt)
@@ -297,17 +330,17 @@ with tab1:
             temps_pid, temps_offen, leistungen = [], [], []
             sollwerte = []
             
-            reaktor_pid.reset(start_temp)
+            reaktor_pid.reset(t_start)
             pid.reset()
-            reaktor_ungeregelt.reset(start_temp)
+            reaktor_ungeregelt.reset(t_start)
             
             # Simulationsschleife
             for i in range(n_steps):
                 t_min = zeiten[i]
                 current_soll = soll_temp
-                
+            
                 # PID-geregeltes System
-                leistung = pid.run(current_soll, reaktor_pid.ist_temp)
+                leistung = pid.run(current_soll, reaktor_pid.t_ist)
                 temp_pid = reaktor_pid.update_temperatur(leistung, dt)
                 
                 # Ungeregeltes System
@@ -357,7 +390,7 @@ with tab1:
         except Exception as e:
             st.error(f"Fehler bei der Simulation: {str(e)}")
             st.info("Bitte überprüfen Sie die Eingabeparameter.")
-
+    
 with tab2:
     st.subheader("📊 Detaillierte Systemanalyse")
     
