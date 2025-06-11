@@ -20,60 +20,66 @@ class Bioreaktor:
 
     Die Temperatur wird beeinflusst durch Heizen, Kühlen und Umwelteinflüsse.
     """
-
     def __init__(
-                self, 
-                reaktor_vol = 10, 
-                t_start = 20, 
-                t_umgebung = 20, 
-                drehz = 100, 
-                wand_mat = 'stahl', 
-                wand_stk = 5):
-        """Initialisiert den Bioreaktor mit Volumen, Temperatur und Materialeigenschaften.
-        """
+            self, 
+            reaktor_vol = 10, 
+            t_start = 20, 
+            t_umgebung = 20, 
+            drehz = 100, 
+            wand_mat = 'stahl', 
+            wand_stk = 5):
+        """Initialisiert den Bioreaktor mit Volumen, Temperatur und Materialeigenschaften."""
 
         # Speichert die Starttemperatur für einen späteren Reset
         self.t_start = t_start
-
         # Thermophysikalische Eigenschaften des Mediums (Wasser)
         self.update_stoffwerte(t_start)
-
-        # Geometrie des Bioreaktors (Zylinderform, Annahme: H = 3 * r)
-        self.reaktor_vol = reaktor_vol / 1000                   # Volumen in m³ (Umrechnung von L in m³)
-        self.wand_stk = wand_stk / 1000                         # Wandstärke in m (Umrechnung von mm in m)
-        self.r_i = (self.reaktor_vol / (2 * np.pi)) ** (1 / 3)  # Innenradius in m 
-        self.r_a = self.r_i + self.wand_stk                     # Außenradius in m
-        self.h_i = 3 * self.r_i                                 # Innenhöhe in m 
-        self.h_a = self.h_i + 2 * self.wand_stk                 # Außenhöhe in m
-        self.flaeche_i = 2 * np.pi * self.r_i**2 + 2 * np.pi * self.r_i * self.h_i  # Innenfläche in m²
-        self.flaeche_a = 2 * np.pi * self.r_a**2 + 2 * np.pi * self.r_a * self.h_a  # Außenfläche in m²
-        self.ruehrer_d = (2 * self.r_i) / 3                     # Rührerdurchmesser in m (Annahme: 1/3 des Innendurchmessers)
-
         # Betriebsbedingungen
         self.t_umgebung = t_umgebung    # Umgebungstemperatur in °C 
         self.t_ist = t_start            # Aktuelle Temperatur in °C
-        self.drehz = drehz / 60         # Rührerdrehzahl in 1/s (Umrechnung von 1/min in 1/s) 
-
+        self.drehz = drehz / 60         # Rührerdrehzahl in 1/s (Umrechnung von 1/min in 1/s)
+        # Geometrie des Bioreaktors 
+        self.geometrie_daten(reaktor_vol, wand_stk)                
         # Wärmeübertragung                                                              
         self.h_int = self.berech_h_int()                 # Interner Wärmeübergangskoeffizient in W/(m²·K)
         self.h_ext = 35                                  # Externer Wärmeübergangskoeffizient in W/(m²·K) (naturliche Konvektion)
         self.lambda_wand = self.berech_lambda(wand_mat)  # Wärmeleitfähigkeit des Wandmaterials in W/(m·K)
-        
         # Physikalische Grenzen
         self.max_leistung = 5000   # maximale Heizleistung in W
         self.min_leistung = -2000  # maximale Kühlleistung in W
 
+    def geometrie_daten(
+            self, 
+            reaktor_vol,
+            wand_stk):
+        """Berechnet und speichert alle Geometriedaten des Bioreaktors."""
 
-    def update_stoffwerte(self, t):
+        # Umrechnungen
+        self.reaktor_vol = reaktor_vol / 1000                   # Volumen in m³ (Umrechnung von L in m³)
+        self.wand_stk = wand_stk / 1000                         # Wandstärke in m (Umrechnung von mm in m)
+        # Radien des Bioreaktors (m)
+        self.r_i = (self.reaktor_vol / (2 * np.pi)) ** (1 / 3)  # Innenradius (Annahme: Zylinderform) 
+        self.r_a = self.r_i + self.wand_stk                     # Außenradius 
+        self.h_i = 3 * self.r_i                                 # Innenhöhe (Annahme: Annahme: H = 3 * r)
+        self.h_a = self.h_i + 2 * self.wand_stk                 # Außenhöhe
+        # Flächen des Bioraktors (m²)
+        self.flaeche_i = 2 * np.pi * self.r_i**2 + 2 * np.pi * self.r_i * self.h_i  # Innenfläche 
+        self.flaeche_a = 2 * np.pi * self.r_a**2 + 2 * np.pi * self.r_a * self.h_a  # Außenfläche
+        # Rührerdurchmesses (m)
+        self.ruehrer_d = (2 * self.r_i) / 3                     # Annahme: 1/3 des Innendurchmessers
+
+    def update_stoffwerte(self,t):
         """Aktualisiert die thermophysikalischen Eigenschaften des Mediums (Wasser)."""
             
         if 0 < t < 100:  
             # Umrechnung der Temperatur in Kelvin für CoolProp
             t_kelvin = t + 273.15   
+            # Stoffwerte für Wasser 
             self.spez_c = PropsSI("Cpmass", "T", t_kelvin, "P", 101325, "Water")   # Spezifische Wärmekapazität in J/(kg·K)
             self.dichte = PropsSI("Dmass", "T", t_kelvin, "P", 101325, "Water")    # Dichte in kg/m³
             self.k = PropsSI("CONDUCTIVITY", "T", t_kelvin, "P", 101325, "Water")  # Wärmeleitfähigkeit in W/(m·K)
             self.mu = PropsSI("VISCOSITY", "T", t_kelvin, "P", 101325, "Water")    # Dynamische Viskosität in Pa·s
+        
         else:   
             # Fallback-Werte für ungültige Temperaturen
             self.spez_c = 4186.0    # Spezifische Wärmekapazität in J/(kg·K) (Wasser bei 20°C)
@@ -81,42 +87,10 @@ class Bioreaktor:
             self.k = 0.606          # Wärmeleitfähigkeit in W/(m·K) (Wasser bei 20°C)
             self.mu = 0.001002      # Dynamische Viskosität in Pa·s (Wasser bei 20°C)
 
-###############
+     def berech_lambda(self, wand_mat):
+        """Gibt die Wärmeleitfähigkeit eines Wandmaterials in W/(m·K) zurück."""
 
-
-
-
-
-    def berech_h_int(self):
-        """Berechnung des Wärmeübergangskoeffizienten h.
-         
-        Anhand von Impeller-Drehzahl (rpm) und Rührerdurchmesser.
-        """
-
-        try:
-            # Dimensionslose Kennzahlen
-            Re = self.drehz * (self.ruehrer_d ** 2) * self.dichte / self.mu  # Reynolds-Zahl
-            Pr = Prandtl(self.spez_c, self.mu, self.k)                       # Prandtl-Zahl
-            
-            # Nusselt-Zahl basierend auf Reynolds- und Prandtl-Zahl
-            if 4.5e3 < Re < 1e4 and 0.6 < Pr < 160:  
-                Nu = 0.354 * (Re ** 0.714) * (Pr ** 0.260)  # Übergangsbereich (4.5e3 < Re < 1e4, 0.6 < Pr < 160)                                                                              
-            elif Re >= 1e4 and Pr >= 0.6:  
-                Nu = 0.023 * (Re ** 0.8) * (Pr ** 0.4)      # Turbulente Strömung (Re >= 10000)                                                                                                
-            else:  
-                Nu = 3.66                                   # Laminare Strömung (Re < 2300)
-                
-            # Berechnung des Wärmeübergangskoeffizienten h
-            h = Nu * self.k / self.ruehrer_d  # Wärmeübergangskoeffizient in W/(m²·K)
-
-            return max(h, 150)  # Mindest-Wärmeübergangskoeffizient
-        except Exception:
-            return 500  # Fallback-Wert bei Fehlern
-
-    def berech_lambda(self, wand_mat):
-        """Wärmeleitfähigkeit für Wandmaterialien.
-        """
-        wand_mat = str(wand_mat).lower()
+        wand_mat = str(wand_mat).lower()  # Normalisierung für Lookup
 
         # Datenbank für Wärmeleitfähigkeiten in W/(m·K)
         material_db = {
@@ -126,13 +100,36 @@ class Bioreaktor:
             'kunststoff': 0.3,
             'aluminium': 230.0
         }
-        return material_db.get(wand_mat, 46.0)
+        return material_db.get(wand_mat, 46.0) # Default: Stahl
 
+    def berech_h_int(self):
+        """Berechnet den internen Wärmeübergangskoeffizienten h."""
+
+        # Dimensionslose Kennzahlen
+        Re = self.drehz * (self.ruehrer_d ** 2) * self.dichte / self.mu  # Reynoldszahl 
+        Pr = Prandtl(self.spez_c, self.mu, self.k)                       # Prandtl-Zahl
+        # Nusselt-Zahl basierend auf Reynolds- und Prandtl-Zahl
+        if 4.5e3 < Re < 1e4 and 0.6 < Pr < 160:  
+            Nu = 0.354 * (Re ** 0.714) * (Pr ** 0.260)  # Übergangsbereich                                                                               
+        elif Re >= 1e4 and Pr >= 0.6:  
+            Nu = 0.023 * (Re ** 0.8) * (Pr ** 0.4)      # Turbulente Strömung                                                                                                 
+        else:  
+            Nu = 3.66                                   # Laminare Strömung 
+        # Berechnung des Wärmeübergangskoeffizienten h
+        h = Nu * self.k / self.ruehrer_d  # Wärmeübergangskoeffizient in W/(m²·K)
+
+        return max(h, 150)  # Mindest-Wärmeübergangskoeffizient
+    
+
+
+
+    
     def t_verlust(self):
         """Berechnet den Wärmeverlust des Reaktors basierend auf Temperaturdifferenz und Wärmeübergangskoeffizienten.
         """
         
-        delta_t = self.t_ist - self.t_umgebung  # Temperaturdifferenz in °C
+        #
+        delta_t = self.t_ist - self.t_umgebung 
         
         # Vermeidung von Division durch Null
         if abs(delta_t) < 0.01:  
