@@ -285,8 +285,9 @@ class PID:
 ## Streamlit-Anwendung und Simulation
 
 # Streamlit konfigurieren
-st.set_page_config(page_title = "Bioreaktor Temperaturregelung", layout = "wide")  
-st.title("Simulation einer Temperaturregelung von Bioreaktoren")  
+st.set_page_config(page_title = "Bioreaktor Temperaturregelung", layout = "wide") 
+st.image("https://upload.wikimedia.org/wikipedia/commons/8/8b/HSWT_Logo_gruen.png", width = 500)  # Logo der Hoschule Weihenstephan-Triesdorf 
+st.title("Simulation einer Temperaturregelung von Bioreaktoren") 
 
 # Sidebar für Einstellungen
 st.sidebar.title("Simulationseinstellungen")  
@@ -442,12 +443,6 @@ with tab1:
             col3_metric.metric("Überschwingen", f"{ue_schwing:.2f}°C")
             col4_metric.metric("Max. Heizleistung", f"{max(leistungen):.0f}W")
     
-
-
-
-
-
-
 with tab2:
     st.subheader("Detaillierte Systemanalyse")
     
