@@ -74,7 +74,7 @@ class Bioreaktor:
         self.flaeche_a = 2 * np.pi * self.r_a**2 + 2 * np.pi * self.r_a * self.h_a  # Außenfläche
 
         # Rührerdurchmesses (m)
-        self.ruehrer_d = (2 * self.r_i) / 3                     # Annahme: 1/3 des Innendurchmessers
+        self.ruehrer_d = (2 * self.r_i) / 3  # Annahme: 1/3 des Innendurchmessers
 
     def update_stoffwerte(self,t):
         """Aktualisiert die thermophysikalischen Eigenschaften des Mediums (Wasser)."""
@@ -325,6 +325,7 @@ with st.sidebar:
 # Tabs für Simulation und Analyse (zur strukturierten Darstellung von Inhalten)
 tab1, tab2 = st.tabs(["📊 Simulation", "📋 Analyse"])
 
+# Tab 1: Interaktive Eingabe und Visualisierung der Reaktorsimulation
 with tab1:
     # Zwei-Spalten-Layout 
     col1, col2 = st.columns([2, 1])  # linke Spalte für Visualisierungen, rechte Spalte für Parameteranzeige
@@ -443,49 +444,58 @@ with tab1:
             col3_metric.metric("Überschwingen", f"{ue_schwing:.2f}°C")
             col4_metric.metric("Max. Heizleistung", f"{max(leistungen):.0f}W")
     
+# Tab 2: Darstellung detaillierter Analysemetriken der Regelgüte    
 with tab2:
     st.subheader("Detaillierte Systemanalyse")
     
     try:
-        # Performance-Metriken basierend auf der aktuellen Simulation
+        # Performance-Metriken auf Basis der aktuellen Simulation
         st.write("**Regelgüte-Kennzahlen:**")
         
-        # Einschwingzeit (Zeit bis 95% des Sollwerts erreicht)
+        # Einschwingzeit: Zeit bis die Temperatur innerhalb von ±5 % des Sollwerts liegt
         schw_zeit = "Nicht erreicht"
         for i, temp in enumerate(temps_pid):
             if abs(temp - soll_temp) <= 0.05 * soll_temp:
                 schw_zeit = f"{zeiten[i]:.1f} min"
                 break
         
-        # Zusätzliche Metriken
-        rise_time = "Nicht erreicht"
+        # Anstiegszeit: Zeit bis 90 % des Sollwerts erreicht sind
+        anstieg_zeit = "Nicht erreicht"
         for i, temp in enumerate(temps_pid):
             if temp >= 0.9 * soll_temp:
-                rise_time = f"{zeiten[i]:.1f} min"
+                anstieg_zeit = f"{zeiten[i]:.1f} min"
                 break
         
+        # Anzeige von Regelgüte-Metriken in zwei Spalten
         col1, col2 = st.columns(2)
+        
         with col1:
-            st.metric("Einschwingzeit (95%)", schw_zeit)
-            st.metric("Anstiegszeit (90%)", rise_time)
-            st.metric("Mittlere Abweichung", f"{np.mean(np.abs(np.array(temps_pid) - soll_temp)):.2f}°C")
+            st.metric("Einschwingzeit (95%)", schw_zeit)   # Zeit bis Temperatur 95 % des Sollwerts erreicht
+            st.metric("Anstiegszeit (90%)", anstieg_zeit)  # Zeit bis 90 % des Sollwerts erreicht werden
+            st.metric("Mittlere Abweichung", 
+                      f"{np.mean(np.abs(np.array(temps_pid) - soll_temp)):.2f} °C")  # Durchschnittlicher Regelabweichungsbetrag
         
         with col2:
-            st.metric("Standardabweichung", f"{np.std(temps_pid):.2f}°C")
-            st.metric("Energieverbrauch", f"{np.mean(np.maximum(leistungen, 0))*simdauer*60/1000:.1f}kJ")
-            st.metric("Kühlenergie", f"{abs(np.mean(np.minimum(leistungen, 0)))*simdauer*60/1000:.1f}kJ")
+            st.metric("Standardabweichung", f"{np.std(temps_pid):.2f} °C")  # Schwankung um den Mittelwert
+            st.metric("Energieverbrauch", 
+                      f"{np.mean(np.maximum(leistungen, 0)) * simdauer * 60/1000:.1f} kJ")       # Gesamtenergie für Heizen
+            st.metric("Kühlenergie", 
+                      f"{abs(np.mean(np.minimum(leistungen, 0))) * simdauer * 60/1000:.1f} kJ")  # Gesamtenergie für Kühlen
         
-        # Verlauf der Regelabweichung
+       # Visualisierung der Regelabweichung über die Zeit
         st.subheader("📈 Regelabweichung über Zeit")
+
         fig_error, ax_error = plt.subplots(figsize=(10, 4))
-        fehler = np.array(temps_pid) - soll_temp
-        ax_error.plot(zeiten, fehler, color="red", linewidth=2)
-        ax_error.axhline(0, color="black", linestyle="--", alpha=0.5)
-        ax_error.fill_between(zeiten, fehler, alpha=0.3, color="red")
+        fehler = np.array(temps_pid) - soll_temp  # Abweichung Ist-Temperatur von Sollwert
+
+        # Regelabweichung plotten
+        ax_error.plot(zeiten, fehler, color = "red", linewidth = 2)
+        ax_error.axhline(0, color = "black", linestyle="--", alpha = 0.5)
+        ax_error.fill_between(zeiten, fehler, alpha = 0.3, color = "red")
         ax_error.set_xlabel("Zeit [min]")
         ax_error.set_ylabel("Regelabweichung [°C]")
         ax_error.set_title("Abweichung von der Solltemperatur")
-        ax_error.grid(True, alpha=0.3)
+        ax_error.grid(True, alpha = 0.3)
         st.pyplot(fig_error)
         
     except:
