@@ -2,7 +2,7 @@
 ##### Programmierung für Datenanalyse, Bildverarbeitung und Simulation 
 ##### Betreuerin: Prof. Dr. Kristina Eisen
 
-#### Projekt 9: Simulation einer Temperautrregelung von Bioreaktoren 
+#### Projekt 9: Simulation einer Temperaturregelung von Bioreaktoren 
 
 ### Ersteller/-in: Jonas Jahrstorfer, Johanna Niklas
 ### Datum: 13.06.2025
@@ -46,7 +46,7 @@ class Bioreaktor:
 
         # Wärmeübertragung                                                              
         self.h_int = self.berech_h_int()                 # Interner Wärmeübergangskoeffizient in W/(m²·K)
-        self.h_ext = 35                                  # Externer Wärmeübergangskoeffizient in W/(m²·K) (naturliche Konvektion)
+        self.h_ext = 35                                  # Externer Wärmeübergangskoeffizient in W/(m²·K) (natürliche Konvektion)
         self.lambda_wand = self.berech_lambda(wand_mat)  # Wärmeleitfähigkeit des Wandmaterials in W/(m·K)
 
         # Physikalische Grenzen
@@ -73,7 +73,7 @@ class Bioreaktor:
         self.flaeche_i = 2 * np.pi * self.r_i**2 + 2 * np.pi * self.r_i * self.h_i  # Innenfläche 
         self.flaeche_a = 2 * np.pi * self.r_a**2 + 2 * np.pi * self.r_a * self.h_a  # Außenfläche
 
-        # Rührerdurchmesses (m)
+        # Rührerdurchmesser (m)
         self.ruehrer_d = (2 * self.r_i) / 3  # Annahme: 1/3 des Innendurchmessers
 
     def update_stoffwerte(self,t):
@@ -285,8 +285,12 @@ class PID:
 ## Streamlit-Anwendung und Simulation
 
 # Streamlit konfigurieren
-st.set_page_config(page_title = "Bioreaktor Temperaturregelung", layout = "wide") 
-st.image("https://upload.wikimedia.org/wikipedia/commons/8/8b/HSWT_Logo_gruen.png", width = 500)  # Logo der Hoschule Weihenstephan-Triesdorf 
+st.set_page_config(
+    page_title = "Bioreaktor Temperaturregelung", 
+    layout = "wide") 
+st.image(
+    "https://upload.wikimedia.org/wikipedia/commons/8/8b/HSWT_Logo_gruen.png",
+    width = 500)  # Logo der Hoschule Weihenstephan-Triesdorf 
 st.title("Simulation einer Temperaturregelung von Bioreaktoren") 
 
 # Sidebar für Einstellungen
@@ -472,15 +476,18 @@ with tab2:
         with col1:
             st.metric("Einschwingzeit (95%)", schw_zeit)   # Zeit bis Temperatur 95 % des Sollwerts erreicht
             st.metric("Anstiegszeit (90%)", anstieg_zeit)  # Zeit bis 90 % des Sollwerts erreicht werden
-            st.metric("Mittlere Abweichung", 
-                      f"{np.mean(np.abs(np.array(temps_pid) - soll_temp)):.2f} °C")  # Durchschnittlicher Regelabweichungsbetrag
+            st.metric(
+                "Mittlere Abweichung", 
+                f"{np.mean(np.abs(np.array(temps_pid) - soll_temp)):.2f} °C")  # Durchschnittlicher Regelabweichungsbetrag
         
         with col2:
             st.metric("Standardabweichung", f"{np.std(temps_pid):.2f} °C")  # Schwankung um den Mittelwert
-            st.metric("Energieverbrauch", 
-                      f"{np.mean(np.maximum(leistungen, 0)) * simdauer * 60/1000:.1f} kJ")       # Gesamtenergie für Heizen
-            st.metric("Kühlenergie", 
-                      f"{abs(np.mean(np.minimum(leistungen, 0))) * simdauer * 60/1000:.1f} kJ")  # Gesamtenergie für Kühlen
+            st.metric(
+                "Energieverbrauch", 
+                f"{np.mean(np.maximum(leistungen, 0)) * simdauer * 60/1000:.1f} kJ")       # Gesamtenergie für Heizen
+            st.metric(
+                "Kühlenergie", 
+                f"{abs(np.mean(np.minimum(leistungen, 0))) * simdauer * 60/1000:.1f} kJ")  # Gesamtenergie für Kühlen
         
        # Visualisierung der Regelabweichung über die Zeit
         st.subheader("📈 Regelabweichung über Zeit")
@@ -498,7 +505,7 @@ with tab2:
         ax_error.grid(True, alpha = 0.3)
         st.pyplot(fig_error)
         
-    except:
+    except Exception:
         st.info("Simulation wird geladen...")
 
 st.sidebar.markdown("---")
