@@ -64,7 +64,7 @@ class Bioreaktor:
         self.wand_stk = wand_stk / 1000                         # Wandstärke in m (Umrechnung von mm in m)
 
         # Radien des Bioreaktors (m)
-        self.r_i = (self.reaktor_vol / 2 * np.pi)**(1/3)        # Innenradius (Annahme: Zylinderform) 
+        self.r_i = (self.reaktor_vol / 4 * np.pi)**(1/3)        # Innenradius (Annahme: Zylinderform) 
         self.r_a = self.r_i + self.wand_stk                     # Außenradius 
         self.h_i = 4 * self.r_i                                 # Innenhöhe (Annahme: H = 4 * r)
         self.h_a = self.h_i + 2 * self.wand_stk                 # Außenhöhe
