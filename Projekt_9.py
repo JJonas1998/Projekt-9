@@ -250,7 +250,7 @@ class PID:
         self.integral = np.clip(self.integral, -self.integral_max, self.integral_max)  
         i_anteil = self.ki * self.integral  
         
-        # Integralanteil mit Anti-Windup
+        # Differentialanteil
         d_anteil = self.kd * (fehler - self.fehler_vor) / self.dt  
         
         # PID-Gesamtausgabe
@@ -307,7 +307,8 @@ with st.sidebar:
     reaktor_vol = st.slider("Reaktorvolumen (L)", 1, 20, 5)
     t_start = st.slider("Starttemperatur (°C)", 5, 40, 20)
     t_umgebung = st.slider("Umgebungstemperatur (°C)", 5, 40, 20)
-    wand_mat = st.selectbox("Wandmaterial", ["Stahl", "Glas", "Edelstahl", "Aluminium"])
+    wand_mat = st.selectbox(
+        "Wandmaterial", ["Stahl", "Glas", "Edelstahl", "Aluminium"])
     wand_stk = st.slider("Wandstärke (mm)", 1, 20, 5)
     drehz = st.slider("Rührerdrehzahl (1/min)", 1, 800, 100)
     
